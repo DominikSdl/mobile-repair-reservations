@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mobile_repair_reservations"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "Dominik", email = "dominik.sudol02@gmail.com" }
+]
+
+requires-python = ">=3.12"
+
+dependencies = [
+    "SQLAlchemy>=2.0,<3.0",
+    "alembic>=1.13,<2.0",
+    "psycopg2-binary>=2.9,<3.0",
+    "pydantic>=2.6,<3.0",
+    "fastapi[standard]>=0.110,<1.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+    "bcrypt>=4.0,<4.1",
+    "python-jose>=3.3,<4.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mobile_repair_reservations*"]
+exclude = ["alembic*"]
