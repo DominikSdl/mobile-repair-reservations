@@ -1,4 +1,4 @@
-from .db_models import User, Services, Reservations
+from .db_models import User, Services, Reservations, Role
 
 from mobile_repair_reservations.api.data_models import UserCreate, ServiceCreate, ReservationCreate
 from sqlalchemy.orm import Session
@@ -6,6 +6,12 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
+
+from uuid import UUID
+
+DEFAULT_ROLE_ID = UUID("a16e6c4d-5b59-4fe6-a68b-b99e198563c0")
+
+
 
 SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
@@ -18,8 +24,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
-
-
 
 def create_token(data: dict) -> str:
     to_encode = data.copy()
@@ -43,9 +47,18 @@ class ServiceHandler:
             password_hash=hash_password(user_data.password),
             phone_number=user_data.phone_number
         )
+
+
+        role = db_session.query(Role).filter(Role.id == DEFAULT_ROLE_ID).first()
+        if not role:
+            raise ValueError("Default role not found in DB")
+
+        new_user.roles.append(role)
+
         db_session.add(new_user)
         db_session.commit()
         db_session.refresh(new_user)
+
         return new_user
 
     def read_user(self, user_id: str, db_session: Session):
@@ -152,3 +165,72 @@ class ServiceHandler:
         db_session.commit()
         db_session.refresh(reservation)
         return reservation
+    
+    def create_role(self, role_name: str, db_session: Session):
+        existing_role = db_session.query(Role).filter(Role.name == role_name).first()
+        if existing_role:
+            return existing_role
+
+        role = Role(name=role_name)
+        db_session.add(role)
+        db_session.commit()
+        db_session.refresh(role)
+        return role
+
+
+    def assign_role_to_user(self, user_id: str, role_name: str, db_session: Session):
+        user = db_session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError("User not found")
+
+        role = db_session.query(Role).filter(Role.name == role_name).first()
+        if not role:
+            raise ValueError("Role not found")
+
+        if role in user.roles:
+            return user  # już ma tę rolę
+
+        user.roles.append(role)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+
+    def remove_role_from_user(self, user_id: str, role_name: str, db_session: Session):
+        user = db_session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError("User not found")
+
+        role = db_session.query(Role).filter(Role.name == role_name).first()
+        if not role:
+            raise ValueError("Role not found")
+
+        if role not in user.roles:
+            return user  # nie ma tej roli
+
+        user.roles.remove(role)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+
+    def get_user_roles(self, user_id: str, db_session: Session):
+        user = db_session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError("User not found")
+
+        return user.roles
+
+
+    def get_role(self, role_name: str, db_session: Session):
+        return db_session.query(Role).filter(Role.name == role_name).first()
+
+
+    def delete_role(self, role_name: str, db_session: Session):
+        role = db_session.query(Role).filter(Role.name == role_name).first()
+        if not role:
+            raise ValueError("Role not found")
+
+        db_session.delete(role)
+        db_session.commit()
+        return

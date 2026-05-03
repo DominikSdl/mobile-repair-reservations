@@ -5,7 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from core.db_models import Base
+from mobile_repair_reservations.core.db_models import Base
 target_metadata = Base.metadata
 
 # this is the Alembic Config object, which provides
