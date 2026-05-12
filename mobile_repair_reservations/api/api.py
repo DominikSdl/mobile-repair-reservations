@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from mobile_repair_reservations.core.service_handler import ServiceHandler, decode_token
 from mobile_repair_reservations.core.database import get_session
-from mobile_repair_reservations.core.db_models import User, Services, Reservations
+from mobile_repair_reservations.core.db_models import User, Services, Reservations, Role
 
 from mobile_repair_reservations.api.data_models import UserCreate, ServiceCreate, ReservationCreate
 
@@ -56,7 +56,7 @@ def require_role(*allowed_roles: str):
         if not any(role in user_roles for role in allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Not Authorized"
+                detail="Not Authorized"
             )
 
         return current_user
@@ -125,9 +125,12 @@ def update_user(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-
 @private_router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: str, db: Session = Depends(get_session), current_user: User = Depends(require_role("admin",  "user"))):
+def delete_user(
+    user_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "user"))
+):
     try:
         is_admin = any(r.name == "admin" for r in current_user.roles)
 
@@ -138,17 +141,33 @@ def delete_user(user_id: str, db: Session = Depends(get_session), current_user: 
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@private_router.get("/users")
+def list_users(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee"))
+):
+    return db.query(User).all()
+
+
 # ======================
 # SERVICES
 # ======================
 
 @private_router.post("/services", status_code=status.HTTP_201_CREATED)
-def create_service(service_data: ServiceCreate, db: Session = Depends(get_session), current_user: User = Depends(require_role("admin", "employee"))):
+def create_service(
+    service_data: ServiceCreate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee"))
+):
     return sh.create_service(service_data=service_data, db_session=db)
 
 
 @private_router.get("/services/{service_id}")
-def read_service(service_id: str, db: Session = Depends(get_session), current_user: User = Depends(require_role("admin", "employee"))):
+def read_service(
+    service_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee"))
+):
     service = sh.read_service(service_id=service_id, db_session=db)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
@@ -156,7 +175,12 @@ def read_service(service_id: str, db: Session = Depends(get_session), current_us
 
 
 @private_router.put("/services/{service_id}")
-def update_service(service_id: str, service_data: ServiceCreate, db: Session = Depends(get_session), current_user: User = Depends(require_role("admin", "employee"))):
+def update_service(
+    service_id: str,
+    service_data: ServiceCreate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee"))
+):
     try:
         return sh.update_service(service_id=service_id, service_data=service_data, db_session=db)
     except ValueError as e:
@@ -164,11 +188,23 @@ def update_service(service_id: str, service_data: ServiceCreate, db: Session = D
 
 
 @private_router.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_service(service_id: str, db: Session = Depends(get_session), current_user: User = Depends(require_role("admin", "employee"))):
+def delete_service(
+    service_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee"))
+):
     try:
         sh.delete_service(service_id=service_id, db_session=db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@private_router.get("/services")
+def list_services(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "employee", "user"))
+):
+    return db.query(Services).all()
 
 
 # ======================
@@ -181,12 +217,49 @@ def create_reservation(
     db: Session = Depends(get_session),
     current_user: User = Depends(require_role("user", "employee", "admin"))
 ):
-    if reservation_data.user_id != str(current_user.id):
-        is_admin = any(r.name == "admin" for r in current_user.roles)
-        if not is_admin:
-            raise HTTPException(status_code=403, detail="Cannot create reservation for another user")
 
-    return sh.create_reservation(reservation_data=reservation_data, db_session=db)
+    if reservation_data.user_id != str(current_user.id):
+
+        is_admin = any(
+            r.name == "admin"
+            for r in current_user.roles
+        )
+
+        if not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot create reservation for another user"
+            )
+
+    existing = db.query(Reservations).filter(
+        Reservations.reservation_date == reservation_data.reservation_date
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="This time slot is already taken"
+        )
+
+    return sh.create_reservation(
+        reservation_data=reservation_data,
+        db_session=db
+    )
+
+
+@private_router.get("/reservations")
+def list_reservations(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("user", "employee", "admin"))
+):
+    is_staff = any(r.name in ["admin", "employee"] for r in current_user.roles)
+
+    if is_staff:
+        return db.query(Reservations).all()
+    else:
+        return db.query(Reservations).filter(
+            Reservations.user_id == str(current_user.id)
+        ).all()
 
 
 @private_router.get("/reservations/{reservation_id}")
@@ -232,10 +305,11 @@ def update_reservation(
     )
 
 
+@private_router.delete("/reservations/{reservation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_reservation(
     reservation_id: str,
     db: Session = Depends(get_session),
-    current_user: User = Depends(require_role("employee", "admin"))
+    current_user: User = Depends(require_role("user", "employee", "admin"))
 ):
     reservation = sh.read_reservation(reservation_id, db)
     if not reservation:
@@ -260,6 +334,14 @@ def create_role(
     current_user: User = Depends(require_role("admin"))
 ):
     return sh.create_role(role_name=role_name, db_session=db)
+
+
+@private_router.get("/roles")
+def list_roles(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin"))
+):
+    return db.query(Role).all()
 
 
 @private_router.get("/roles/{role_name}")
@@ -320,7 +402,6 @@ def get_user_roles(
 ):
     is_admin = any(r.name == "admin" for r in current_user.roles)
 
-    # user może zobaczyć tylko swoje role
     if str(current_user.id) != user_id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -328,3 +409,5 @@ def get_user_roles(
         return sh.get_user_roles(user_id=user_id, db_session=db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+

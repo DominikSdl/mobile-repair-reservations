@@ -73,7 +73,7 @@ class ServiceHandler:
         if not password_match:
             return False
 
-        token_data = {"sub": user.email}
+        token_data = {"user_id": str(user.id), "sub": user.email, "roles": [role.name for role in user.roles]}
         token = create_token(token_data)
         return token
 
